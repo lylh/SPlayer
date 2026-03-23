@@ -13,7 +13,7 @@
         >
           <!-- 悬浮顶栏 -->
           <div class="list-header song-card sticky-header">
-            <n-text class="num">#</n-text>
+            <n-text class="num mobile-hidden">#</n-text>
             <n-popover
               v-if="!disabledSort"
               trigger="click"
@@ -85,7 +85,7 @@
           <!-- 虚拟列表 -->
           <VirtualScroll
             ref="listRef"
-            :item-height="90"
+            :item-height="itemHeight"
             :item-fixed="true"
             :items="virtualListItems"
             :height="`calc(100% - 40px)`"
@@ -251,7 +251,10 @@ const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const player = usePlayerController();
-const { isSmallScreen } = useMobile();
+const { isSmallScreen, isMobile } = useMobile();
+
+// 虚拟列表项高度
+const itemHeight = computed(() => (isMobile.value ? 76 : 90));
 
 // 列表元素
 const listRef = ref<InstanceType<typeof VirtualScroll> | null>(null);
@@ -652,6 +655,15 @@ onBeforeUnmount(() => {
       top: 0;
       z-index: 10;
     }
+    @media (max-width: 640px) {
+      .list-header {
+        height: 34px;
+        padding: 4px 10px;
+        .mobile-hidden {
+          display: none;
+        }
+      }
+    }
   }
   // 加载更多
   .load-more {
@@ -697,6 +709,10 @@ onBeforeUnmount(() => {
       opacity: 0;
       pointer-events: none;
     }
+  }
+  @media (max-width: 640px) {
+    right: 16px;
+    bottom: calc(100px + env(safe-area-inset-bottom));
   }
 }
 

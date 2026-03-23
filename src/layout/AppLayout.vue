@@ -253,5 +253,15 @@ onMounted(() => {
       -webkit-app-region: no-drag;
     }
   }
+  @media (max-width: 640px) {
+    #main-content {
+      top: 56px;
+    }
+    &.show-player {
+      #main-content {
+        bottom: calc(80px + env(safe-area-inset-bottom));
+      }
+    }
+  }
 }
 </style>

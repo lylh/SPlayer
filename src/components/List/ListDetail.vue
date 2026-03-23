@@ -609,6 +609,59 @@ const handleTabChange = (value: "songs" | "comments") => {
         }
       }
     }
+    @media (max-width: 640px) {
+      .detail {
+        height: 80px;
+      }
+    }
+  }
+  @media (max-width: 640px) {
+    .detail {
+      flex-direction: column;
+      height: auto;
+      min-height: 260px;
+      padding: 12px 0;
+      position: relative;
+      .cover {
+        width: 140px;
+        height: 140px;
+        aspect-ratio: 1/1;
+        margin: 0 auto 12px;
+        .cover-shadow {
+          display: none;
+        }
+      }
+      .data {
+        padding-right: 0;
+        .name {
+          font-size: 20px;
+          margin-bottom: 6px;
+          text-align: center;
+        }
+        .collapse {
+          position: relative;
+          top: 0;
+        }
+        .meta {
+          justify-content: center;
+        }
+        .menu {
+          position: relative;
+          margin-top: 12px;
+          .left {
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 100%;
+          }
+          :deep(.n-button) {
+            height: 34px;
+            --n-font-size: 13px;
+            --n-padding: 0 14px;
+            --n-icon-size: 16px;
+          }
+        }
+      }
+    }
   }
 }
 </style>

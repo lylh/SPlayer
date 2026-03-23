@@ -262,11 +262,33 @@ const getListData = async (id: number | string): Promise<SongType[]> => {
       grid-template-columns: repeat(3, 1fr);
       gap: 12px;
     }
+    @media (max-width: 400px) {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
   }
   .cover-item {
     position: relative;
     height: auto;
     border-radius: 16px;
+    @media (max-width: 640px) {
+      border-radius: 12px;
+      .cover {
+        border-radius: 12px;
+      }
+      .play-count {
+        font-size: 12px;
+        .n-icon {
+          font-size: 12px;
+        }
+      }
+      .cover-data {
+        padding: 8px;
+        .name {
+          font-size: 14px;
+        }
+      }
+    }
     z-index: 0;
     transition:
       background-color 0.3s,

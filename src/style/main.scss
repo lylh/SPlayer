@@ -3,12 +3,20 @@
   padding: 0;
   user-select: none;
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
   ::after {
     box-sizing: border-box;
   }
   &:focus {
     outline: none;
   }
+}
+
+// 输入框允许文字选择
+input,
+textarea,
+[contenteditable] {
+  user-select: text;
 }
 
 :root {
@@ -77,6 +85,8 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  // 移动端安全区域
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 a,
@@ -276,6 +286,10 @@ audio {
   --n-height: 42px !important;
   --n-width: 42px !important;
   border: 1px solid rgba(var(--primary), 0.28);
+  @media (max-width: 640px) {
+    right: 16px !important;
+    bottom: 100px !important;
+  }
 }
 
 // select
@@ -383,6 +397,22 @@ audio {
       & ~ .loading,
       & ~ .n-empty {
         padding-top: 100px;
+      }
+    }
+  }
+  @media (max-width: 640px) {
+    .song-list,
+    .list-comment,
+    .loading,
+    .n-empty {
+      padding-top: 260px;
+    }
+    .list-detail.small {
+      & ~ .song-list,
+      & ~ .list-comment,
+      & ~ .loading,
+      & ~ .n-empty {
+        padding-top: 80px;
       }
     }
   }

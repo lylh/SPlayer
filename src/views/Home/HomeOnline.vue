@@ -302,5 +302,8 @@ onMounted(() => {
       }
     }
   }
+  @media (max-width: 640px) {
+    margin-top: 20px;
+  }
 }
 </style>

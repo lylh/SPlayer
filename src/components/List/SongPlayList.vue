@@ -439,6 +439,22 @@ const {
     height: 72px;
     padding: 16px;
   }
+  @media (max-width: 640px) {
+    width: 100vw !important;
+    .playlist-list {
+      padding: 8px;
+      .song-node {
+        padding: 4px 0;
+      }
+      .song-item {
+        min-height: 56px;
+        padding: 0 8px;
+        .drag-handle {
+          width: 24px;
+        }
+      }
+    }
+  }
   &.full-player {
     --n-color: rgb(var(--main-cover-color));
     --n-close-icon-color: rgba(var(--main-cover-color), 0.58);

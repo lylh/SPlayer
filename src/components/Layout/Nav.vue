@@ -361,6 +361,17 @@ onMounted(async () => {
       right: 100px;
     }
   }
+  @media (max-width: 640px) {
+    height: 56px;
+    padding: 0 12px;
+    .n-button {
+      width: 36px;
+      height: 36px;
+    }
+    .nav-main {
+      margin-left: 8px;
+    }
+  }
 }
 .tip {
   font-size: 16px;

@@ -499,5 +499,36 @@ const albumName = computed(() => {
       }
     }
   }
+  @media (max-width: 640px) {
+    height: 76px;
+    .song-content {
+      padding: 6px 10px;
+    }
+    .num {
+      width: 30px;
+      min-width: 30px;
+      margin-right: 8px;
+    }
+    .title {
+      padding: 2px 8px 2px 0;
+      .cover {
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
+        margin-right: 8px;
+      }
+      .info {
+        .name {
+          font-size: 14px;
+        }
+        .desc {
+          font-size: 12px;
+        }
+      }
+    }
+    .actions {
+      width: 32px;
+    }
+  }
 }
 </style>
