@@ -1,6 +1,6 @@
 import type { SongMatchInfo, SongUrlResult } from "./unblock";
 import { isSongMatch } from "./match";
-import { serverLog } from "../../main/logger";
+import { serverLog } from "../web-logger";
 import { createHash } from "crypto";
 import axios from "axios";
 

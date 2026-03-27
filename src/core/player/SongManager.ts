@@ -430,7 +430,7 @@ class SongManager {
       if (!songId) return;
       // 是否可解锁
       const canUnlock = nextSong.type !== "radio" && settingStore.useSongUnlock;
-      
+
       // 优先尝试解锁
       if (canUnlock) {
         const unlockUrl = await this.getUnlockSongUrl(nextSong);
@@ -563,7 +563,7 @@ class SongManager {
         if (isTrial) window.$message.warning("当前歌曲仅可试听");
         return { id: songId, url: officialUrl, quality, isUnlocked: false, source: "official" };
       }
-      
+
       // 最后的兜底：检查本地是否有缓存（不区分音质）
       if (!forceSource || forceSource === "auto") {
         const fallbackUrl = await this.checkLocalCache(songId);

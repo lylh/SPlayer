@@ -13,6 +13,28 @@ import { onMounted, watch } from "vue";
 /** 最终聚焦主窗口的延迟时间（毫秒） */
 const FINAL_FOCUS_DELAY_MS = 500;
 
+/** 页面隐藏前是否正在播放 */
+let wasPlayingBeforeHidden = false;
+
+/**
+ * 处理页面可见性变化
+ * 移动端锁屏时会触发 visibilitychange，使 AudioContext 被暂停
+ * 恢复可见时自动继续播放
+ */
+const handleVisibilityChange = () => {
+  const player = usePlayerController();
+  const statusStore = useStatusStore();
+
+  if (document.hidden) {
+    wasPlayingBeforeHidden = statusStore.playStatus && !statusStore.playLoading;
+  } else if (wasPlayingBeforeHidden) {
+    wasPlayingBeforeHidden = false;
+    if (!statusStore.playStatus && !statusStore.playLoading) {
+      player.play();
+    }
+  }
+};
+
 /**
  * 应用初始化时需要执行的操作
  */
@@ -29,7 +51,9 @@ export const useInit = () => {
   // 事件监听
   initEventListener();
 
-    onMounted(async () => {
+  onMounted(async () => {
+    // 监听页面可见性变化（移动端锁屏恢复后自动续播）
+    useEventListener(document, "visibilitychange", handleVisibilityChange);
     // 检查并执行设置迁移
     settingStore.checkAndMigrate();
     // 打印版本信息
@@ -80,7 +104,8 @@ export const useInit = () => {
       const taskbarConfig = await window.electron.ipcRenderer.invoke(
         TASKBAR_IPC_CHANNELS.GET_OPTION,
       );
-      statusStore.showTaskbarLyric = taskbarConfig?.enabled ?? statusStore.showTaskbarLyric ?? false;
+      statusStore.showTaskbarLyric =
+        taskbarConfig?.enabled ?? statusStore.showTaskbarLyric ?? false;
       window.electron.ipcRenderer.send(
         TASKBAR_IPC_CHANNELS.SET_OPTION,
         { enabled: statusStore.showTaskbarLyric },

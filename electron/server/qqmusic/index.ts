@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import axios from "axios";
-import { serverLog } from "../../main/logger";
+import { serverLog } from "../web-logger";
 import { decryptQrc } from "./qrc";
 
 /**

@@ -1,7 +1,7 @@
 import { encryptQuery } from "./kwDES";
 import type { SongMatchInfo, SongUrlResult } from "./unblock";
 import { isSongMatch } from "./match";
-import { serverLog } from "../../main/logger";
+import { serverLog } from "../web-logger";
 import axios from "axios";
 
 // 获取酷我音乐歌曲 ID

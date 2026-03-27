@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SongUrlResult } from "./unblock";
-import { serverLog } from "../../main/logger";
+import { serverLog } from "../web-logger";
 import axios from "axios";
 import getKuwoSongUrl from "./kuwo";
 import getBodianSongUrl from "./bodian";

@@ -1,16 +1,15 @@
 services:
   SPlayer:
-    build:
-      context: .
-    image: splayer
+    image: lylh/splayer:v1.0.6
     container_name: SPlayer
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     ports:
       - 25884:25884
     restart: always
     environment:
+      # 时区设置
+      - TZ=Asia/Shanghai
       # 所有变量都不是必填项
       # 网易云服务端 IP, 可在宿主机通过 ping music.163.com 获得
       - NETEASE_SERVER_IP=220.197.30.65
