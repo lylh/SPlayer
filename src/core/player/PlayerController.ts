@@ -287,13 +287,27 @@ class PlayerController {
     try {
       // 标记正在加载，防止 stop() 产生的错误事件干扰重试计数
       this.isLoadingSong = true;
-      // 立即停止当前播放 (除非是 Crossfade)
+      // 立即暂停当前播放 (不使用 stop() 以免意外丢弃播放层面的连续许可上下文)
+      // 如果歌曲已经处于暂停/结束状态，不要再重复调用 pause()，否则 Webkit 会强制打断自动播放链
       statusStore.playLoading = true;
-      if (!options.crossfade) {
-        audioManager.stop();
+      if (!options.crossfade && !audioManager.paused) {
+        audioManager.pause();
       }
       // 立即更新 UI（歌曲信息、封面、歌词等），无需等待网络请求
       this.setupSongUI(playSongData, seek);
+
+      if (!isElectron && options.autoPlay) {
+        // [Blank Audio Trick] Web 端为了防止在这段由于网络请求导致的微任务中断期间自动播放权限流失，
+        // 我们利用无声的 base64 音频占位并保持正在 play() 状态，从而无缝衔接真实音频。
+        const SILENCE = "data:audio/mp3;base64,//OQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+        const engine = (audioManager as any).engine;
+        if (engine && engine.audioElement && engine.audioElement.src !== SILENCE) {
+          engine.audioElement.src = SILENCE;
+          engine.audioElement.loop = true; // MUST loop to prevent triggering 'ended' again!
+          engine.audioElement.play().catch(() => {});
+        }
+      }
+
       const { audioSource, analysis, analysisKind } = await this.prepareAudioSource(
         playSongData,
         requestToken,
@@ -579,14 +593,13 @@ class PlayerController {
       const current = startRate + (targetRate - startRate) * progress;
       audioManager.setRate(current);
 
-      if (progress < 1.0) {
-        this.rateRampFrame = requestAnimationFrame(tick);
-      } else {
+      if (progress >= 1.0 && this.rateRampFrame !== undefined) {
+        clearInterval(this.rateRampFrame as any);
         this.rateRampFrame = undefined;
         this.rateResetTimer = undefined;
       }
     };
-    this.rateRampFrame = requestAnimationFrame(tick);
+    this.rateRampFrame = setInterval(tick, 30) as any;
   }
 
   /**
@@ -1020,7 +1033,10 @@ class PlayerController {
     const audioManager = useAudioManager();
     // 立即显示加载状态
     statusStore.playLoading = true;
-    audioManager.stop();
+    // 如果还没暂停（手动切歌），则主动暂停以停止出声；如果是自然结束（已暂停），不要重复调用
+    if (!audioManager.paused) {
+      audioManager.pause();
+    }
     // 私人FM
     if (statusStore.personalFmMode) {
       await songManager.initPersonalFM(true);

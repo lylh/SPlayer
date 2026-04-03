@@ -32,7 +32,7 @@ export class AudioElementPlayer extends BaseAudioPlayer {
   private readonly useDirectOutput: boolean;
 
   /** 直接输出模式下的淡入淡出定时器 */
-  private directFadeTimer: ReturnType<typeof requestAnimationFrame> | null = null;
+  private directFadeTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 引擎能力描述 */
   public override readonly capabilities: EngineCapabilities;
@@ -97,6 +97,7 @@ export class AudioElementPlayer extends BaseAudioPlayer {
    * @param url 音频地址
    */
   public async load(url: string): Promise<void> {
+    this.audioElement.loop = false; // 重置可能被 Blank Audio Trick 修改的 loop 属性
     this.audioElement.src = url;
     this.audioElement.load();
   }
@@ -192,7 +193,8 @@ export class AudioElementPlayer extends BaseAudioPlayer {
       this.fadeTimerDirect = null;
     }
     if (this.directFadeTimer) {
-      cancelAnimationFrame(this.directFadeTimer);
+      clearInterval(this.directFadeTimer as any);
+      cancelAnimationFrame(this.directFadeTimer as any); // 兼容旧有的清理
       this.directFadeTimer = null;
     }
   }
@@ -202,7 +204,8 @@ export class AudioElementPlayer extends BaseAudioPlayer {
    */
   private directFadeTo(targetVolume: number, duration: number) {
     if (this.directFadeTimer) {
-      cancelAnimationFrame(this.directFadeTimer);
+      clearInterval(this.directFadeTimer as any);
+      cancelAnimationFrame(this.directFadeTimer as any);
       this.directFadeTimer = null;
     }
 
@@ -215,14 +218,14 @@ export class AudioElementPlayer extends BaseAudioPlayer {
       const progress = Math.min(elapsed / durationMs, 1);
       this.audioElement.volume = startVolume + (targetVolume - startVolume) * progress;
 
-      if (progress < 1) {
-        this.directFadeTimer = requestAnimationFrame(step);
-      } else {
+      if (progress >= 1 && this.directFadeTimer) {
+        clearInterval(this.directFadeTimer as any);
         this.directFadeTimer = null;
       }
     };
 
-    this.directFadeTimer = requestAnimationFrame(step);
+    // 使用 setInterval 替代 requestAnimationFrame 保证在后台标签页也能执行完毕
+    this.directFadeTimer = setInterval(step, 30) as any;
   }
 
   /**
@@ -430,9 +433,14 @@ export class AudioElementPlayer extends BaseAudioPlayer {
     events.forEach((eventType) => {
       this.audioElement.addEventListener(eventType, (e) => {
         if (eventType === AUDIO_EVENTS.ERROR) {
+          const errorCode = this.getErrorCode();
+          // 如果是因为 stop() 取消 src 引起的 MEDIA_ERR_SRC_NOT_SUPPORTED 错误，予以忽略避免死循环重试
+          if (errorCode === AudioErrorCode.SRC_NOT_SUPPORTED && !this.audioElement.getAttribute("src")) {
+            return;
+          }
           this.dispatch(AUDIO_EVENTS.ERROR, {
             originalEvent: e,
-            errorCode: this.getErrorCode(),
+            errorCode,
           });
         } else {
           this.dispatch(eventType);
