@@ -6,6 +6,7 @@ import { TASKBAR_IPC_CHANNELS } from "@/types/shared";
 import { isElectron, isMac } from "@/utils/env";
 import { printVersion } from "@/utils/log";
 import { openUserAgreement } from "@/utils/modal";
+
 import { useEventListener } from "@vueuse/core";
 import { debounce } from "lodash-es";
 import { onMounted, watch } from "vue";
@@ -16,10 +17,67 @@ const FINAL_FOCUS_DELAY_MS = 500;
 /** 页面隐藏前是否正在播放 */
 let wasPlayingBeforeHidden = false;
 
+/** Web Lock 控制器，用于释放保活锁 */
+let webLockAbort: AbortController | null = null;
+
+/** Screen Wake Lock 句柄 */
+let wakeLockSentinel: WakeLockSentinel | null = null;
+
+/**
+ * 请求 Web Lock 保活
+ * 告诉浏览器当前页面有活跃任务，避免后台节流
+ */
+const requestWebLock = () => {
+  if (isElectron || !navigator.locks) return;
+  releaseWebLock();
+  webLockAbort = new AbortController();
+  navigator.locks
+    .request("splayer-audio-active", { signal: webLockAbort.signal }, () => {
+      // 持有锁直到被 abort
+      return new Promise<void>(() => {});
+    })
+    .catch(() => {
+      // abort 时正常退出
+    });
+};
+
+/**
+ * 释放 Web Lock
+ */
+const releaseWebLock = () => {
+  if (webLockAbort) {
+    webLockAbort.abort();
+    webLockAbort = null;
+  }
+};
+
+/**
+ * 请求 Screen Wake Lock 防止屏幕锁定
+ */
+const requestWakeLock = async () => {
+  if (isElectron || !("wakeLock" in navigator)) return;
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request("screen");
+    wakeLockSentinel.addEventListener("release", () => {
+      wakeLockSentinel = null;
+    });
+  } catch {
+    // 用户或系统拒绝
+  }
+};
+
+/**
+ * 释放 Screen Wake Lock
+ */
+const releaseWakeLock = async () => {
+  if (wakeLockSentinel) {
+    await wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
+};
 /**
  * 处理页面可见性变化
- * 移动端锁屏时会触发 visibilitychange，使 AudioContext 被暂停
- * 恢复可见时自动继续播放
+ * 移动端锁屏恢复后自动续播
  */
 const handleVisibilityChange = () => {
   const player = usePlayerController();
@@ -27,10 +85,18 @@ const handleVisibilityChange = () => {
 
   if (document.hidden) {
     wasPlayingBeforeHidden = statusStore.playStatus && !statusStore.playLoading;
-  } else if (wasPlayingBeforeHidden) {
-    wasPlayingBeforeHidden = false;
-    if (!statusStore.playStatus && !statusStore.playLoading) {
-      player.play();
+  } else {
+    // 如果之前正在播放但现在停了，重新播放
+    if (wasPlayingBeforeHidden) {
+      wasPlayingBeforeHidden = false;
+      if (!statusStore.playStatus && !statusStore.playLoading) {
+        player.play();
+      }
+    }
+
+    // 重新获取 Wake Lock（锁屏后会自动释放）
+    if (statusStore.playStatus) {
+      requestWakeLock();
     }
   }
 };
@@ -92,6 +158,23 @@ export const useInit = () => {
       () => [settingStore.enableReplayGain, settingStore.replayGainMode],
       () => player.applyReplayGain(),
     );
+
+    // 监听播放状态，控制后台保活
+    if (!isElectron) {
+      watch(
+        () => statusStore.playStatus,
+        (playing) => {
+          if (playing) {
+            requestWebLock();
+            requestWakeLock();
+          } else {
+            releaseWebLock();
+            releaseWakeLock();
+          }
+        },
+        { immediate: true },
+      );
+    }
 
     if (isElectron) {
       // 注册全局快捷键

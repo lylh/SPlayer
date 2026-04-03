@@ -4,14 +4,15 @@ import {
   BaseAudioPlayer,
   type AudioEventType,
 } from "./BaseAudioPlayer";
-import type { EngineCapabilities } from "./IPlaybackEngine";
+import type { EngineCapabilities, FadeCurve } from "./IPlaybackEngine";
 import { useSettingStore } from "@/stores";
+import { isElectron } from "@/utils/env";
 
 /**
  * 基于 HTMLAudioElement 的播放器实现
  *
- * 使用原生 HTML5 Audio 元素进行音频播放，支持大多数常见格式
- * 通过 MediaElementAudioSourceNode 连接到 Web Audio API 音频图谱
+ * Electron 环境：通过 MediaElementAudioSourceNode 连接 Web Audio API 音频图谱（支持 EQ、频谱等）
+ * Web/移动端环境：直接输出模式，HTML Audio 元素直接播放到扬声器（支持后台/锁屏播放）
  */
 export class AudioElementPlayer extends BaseAudioPlayer {
   /** 内部 Audio 元素 */
@@ -24,16 +25,21 @@ export class AudioElementPlayer extends BaseAudioPlayer {
   /** 目标时间缓存，用于在 seek 过程中返回稳定的 currentTime */
   private targetSeekTime = 0;
 
+  /**
+   * 直接输出模式：不经过 AudioContext，音频直接从 HTML Audio 元素输出
+   * 移动端浏览器后台会 suspend AudioContext 导致无声，必须绕过
+   */
+  private readonly useDirectOutput: boolean;
+
+  /** 直接输出模式下的淡入淡出定时器 */
+  private directFadeTimer: ReturnType<typeof requestAnimationFrame> | null = null;
+
   /** 引擎能力描述 */
-  public override readonly capabilities: EngineCapabilities = {
-    supportsRate: true,
-    supportsSinkId: true,
-    supportsEqualizer: true,
-    supportsSpectrum: true,
-  };
+  public override readonly capabilities: EngineCapabilities;
 
   constructor() {
     super();
+    this.useDirectOutput = !isElectron;
     this.audioElement = new Audio();
     this.audioElement.crossOrigin = "anonymous";
     this.bindInternalEvents();
@@ -41,6 +47,26 @@ export class AudioElementPlayer extends BaseAudioPlayer {
     this.audioElement.addEventListener("seeked", () => {
       this.isInternalSeeking = false;
     });
+
+    // 直接输出模式下不支持 EQ 和频谱
+    this.capabilities = {
+      supportsRate: true,
+      supportsSinkId: true,
+      supportsEqualizer: !this.useDirectOutput,
+      supportsSpectrum: !this.useDirectOutput,
+    };
+  }
+
+  /**
+   * 初始化：直接输出模式跳过 AudioContext 图谱
+   */
+  public override init() {
+    if (this.useDirectOutput) {
+      // 直接输出模式不需要 AudioContext
+      this.isInitialized = true;
+      return;
+    }
+    super.init();
   }
 
   /**
@@ -48,6 +74,8 @@ export class AudioElementPlayer extends BaseAudioPlayer {
    * 创建 MediaElementAudioSourceNode 并连接到输入节点
    */
   protected onGraphInitialized(): void {
+    // 直接输出模式不连接 AudioContext
+    if (this.useDirectOutput) return;
     if (!this.audioCtx || !this.inputNode) return;
 
     try {
@@ -71,6 +99,177 @@ export class AudioElementPlayer extends BaseAudioPlayer {
   public async load(url: string): Promise<void> {
     this.audioElement.src = url;
     this.audioElement.load();
+  }
+
+  /**
+   * 播放：直接输出模式绕过 AudioContext
+   */
+  public override async play(
+    url?: string,
+    options: {
+      fadeIn?: boolean;
+      fadeDuration?: number;
+      fadeCurve?: FadeCurve;
+      autoPlay?: boolean;
+      seek?: number;
+    } = {},
+  ) {
+    if (!this.useDirectOutput) {
+      return super.play(url, options);
+    }
+
+    this.cancelPendingPause();
+    const shouldPlay = options.autoPlay ?? true;
+
+    if (url) {
+      await this.load(url);
+    }
+
+    if (!this.isInitialized) this.init();
+
+    if (options.seek && options.seek > 0) {
+      this.doSeek(options.seek);
+    }
+
+    if (!shouldPlay) return;
+
+    const duration = options.fadeIn ? (options.fadeDuration ?? 0.5) : 0;
+
+    if (duration > 0) {
+      this.audioElement.volume = 0;
+      this.directFadeTo(this.volume * this.replayGain, duration);
+    } else {
+      this.audioElement.volume = this.volume * this.replayGain;
+    }
+
+    try {
+      await this.doPlay();
+    } catch (e) {
+      console.error("播放失败", e);
+      throw e;
+    }
+  }
+
+  /**
+   * 暂停：直接输出模式不操作 AudioContext
+   */
+  public override async pause(
+    options: {
+      fadeOut?: boolean;
+      fadeDuration?: number;
+      fadeCurve?: FadeCurve;
+      keepContextRunning?: boolean;
+    } = {},
+  ) {
+    if (!this.useDirectOutput) {
+      return super.pause(options);
+    }
+
+    this.cancelPendingPause();
+    const duration = options.fadeOut ? (options.fadeDuration ?? 0.5) : 0;
+
+    if (duration > 0) {
+      this.directFadeTo(0, duration);
+      this.fadeTimerDirect = setTimeout(() => {
+        this.doPause();
+        this.fadeTimerDirect = null;
+      }, duration * 1000);
+    } else {
+      this.doPause();
+    }
+  }
+
+  /** 淡出暂停定时器 */
+  private fadeTimerDirect: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 取消暂停定时器
+   */
+  protected override cancelPendingPause() {
+    super.cancelPendingPause();
+    if (this.fadeTimerDirect) {
+      clearTimeout(this.fadeTimerDirect);
+      this.fadeTimerDirect = null;
+    }
+    if (this.directFadeTimer) {
+      cancelAnimationFrame(this.directFadeTimer);
+      this.directFadeTimer = null;
+    }
+  }
+
+  /**
+   * 直接输出模式下的音量渐变
+   */
+  private directFadeTo(targetVolume: number, duration: number) {
+    if (this.directFadeTimer) {
+      cancelAnimationFrame(this.directFadeTimer);
+      this.directFadeTimer = null;
+    }
+
+    const startVolume = this.audioElement.volume;
+    const startTime = performance.now();
+    const durationMs = duration * 1000;
+
+    const step = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(elapsed / durationMs, 1);
+      this.audioElement.volume = startVolume + (targetVolume - startVolume) * progress;
+
+      if (progress < 1) {
+        this.directFadeTimer = requestAnimationFrame(step);
+      } else {
+        this.directFadeTimer = null;
+      }
+    };
+
+    this.directFadeTimer = requestAnimationFrame(step);
+  }
+
+  /**
+   * 设置音量
+   */
+  public override setVolume(value: number) {
+    this.volume = Math.max(0, Math.min(1, value));
+    if (this.useDirectOutput) {
+      this.audioElement.volume = this.volume * this.replayGain;
+    } else {
+      this.applyFadeTo(this.volume * this.replayGain, 0);
+    }
+  }
+
+  /**
+   * 音量渐变
+   */
+  public override rampVolumeTo(value: number, duration: number, curve?: FadeCurve) {
+    this.volume = Math.max(0, Math.min(1, value));
+    if (this.useDirectOutput) {
+      this.directFadeTo(this.volume * this.replayGain, duration);
+    } else {
+      this.applyFadeTo(this.volume * this.replayGain, duration, curve);
+    }
+  }
+
+  /**
+   * 设置 ReplayGain
+   */
+  public override setReplayGain(gain: number) {
+    this.replayGain = gain;
+    if (this.useDirectOutput) {
+      this.audioElement.volume = this.volume * this.replayGain;
+    } else {
+      this.applyFadeTo(this.volume * this.replayGain, 0.1);
+    }
+  }
+
+  /**
+   * 恢复播放
+   */
+  public override async resume(options?: {
+    fadeIn?: boolean;
+    fadeDuration?: number;
+    fadeCurve?: FadeCurve;
+  }): Promise<void> {
+    await this.play(undefined, options);
   }
 
   /**
@@ -134,27 +333,6 @@ export class AudioElementPlayer extends BaseAudioPlayer {
    * @param semitones 半音偏移量
    */
   public setPitchShift(semitones: number): void {
-    // HTML5 Audio preservesPitch property
-    // true (default) = time stretch (pitch constant, speed changes)
-    // false = pitch shift (pitch changes with speed)
-
-    // We want to change pitch without changing speed?
-    // No, standard Web Audio doesn't support independent pitch shift natively without libraries like SoundTouch.
-    // However, if we want to change pitch to match keys:
-    // If we use playbackRate to change pitch, speed also changes.
-    // If preservesPitch = false, playbackRate changes both pitch and speed (like a vinyl record).
-
-    // If the request is to SHIFT pitch while keeping speed constant: NOT SUPPORTED by HTML5 Audio directly.
-    // But if the request is "we have set playbackRate to sync BPM, now we want to correct Pitch":
-    // That's complex.
-
-    // For now, let's assume 'preservesPitch' control.
-    // If semitones != 0, we might want to disable pitch preservation if we are using rate to shift pitch?
-    // Actually, 'preservesPitch' only affects what happens when playbackRate != 1.
-
-    // If we want independent pitch shifting, we can't do it with just AudioElement.
-    // But we can implement the interface method to avoid crashes.
-
     if ("preservesPitch" in this.audioElement) {
       const el = this.audioElement as HTMLAudioElement & { preservesPitch: boolean };
       el.preservesPitch = semitones === 0;
@@ -197,6 +375,12 @@ export class AudioElementPlayer extends BaseAudioPlayer {
     if (this.isInternalSeeking) {
       return this.targetSeekTime;
     }
+
+    // 直接输出模式不需要延迟补偿
+    if (this.useDirectOutput) {
+      return this.audioElement.currentTime || 0;
+    }
+
     const settingStore = useSettingStore();
 
     const isPlayback = settingStore.audioLatencyHint === "playback";

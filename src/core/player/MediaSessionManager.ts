@@ -90,7 +90,8 @@ class MediaSessionManager {
    */
   public init() {
     const settingStore = useSettingStore();
-    if (!settingStore.smtcOpen) return;
+    // smtcOpen 仅限制 Electron 原生 SMTC，Web 环境始终初始化
+    if (isElectron && !settingStore.smtcOpen) return;
 
     const player = usePlayerController();
     const statusStore = useStatusStore();
@@ -140,6 +141,9 @@ class MediaSessionManager {
       nav.setActionHandler("seekto", (e) => {
         if (e.seekTime) player.setSeek(e.seekTime * 1000);
       });
+      // 覆盖默认的快进/倒退按钮，映射为上一曲/下一曲
+      nav.setActionHandler("seekbackward", () => player.nextOrPrev("prev"));
+      nav.setActionHandler("seekforward", () => player.nextOrPrev("next"));
     }
   }
 
@@ -150,6 +154,7 @@ class MediaSessionManager {
     if (!("mediaSession" in navigator) && !isElectron) return;
     const musicStore = useMusicStore();
     const settingStore = useSettingStore();
+    // Web 环境下始终更新 MediaSession（不受 smtcOpen 限制）
     const song = getPlaySongData();
     if (!song) return;
     if (this.metadataAbortController) {
@@ -289,7 +294,8 @@ class MediaSessionManager {
    */
   public updateState(duration: number, position: number, immediate: boolean = false) {
     const settingStore = useSettingStore();
-    if (!settingStore.smtcOpen) return;
+    // Web 环境下始终更新进度（不受 smtcOpen 限制）
+    if (!settingStore.smtcOpen && isElectron) return;
 
     // 原生插件
     if (this.shouldUseNativeMedia()) {
@@ -314,6 +320,11 @@ class MediaSessionManager {
     // 发送到原生插件
     if (this.shouldUseNativeMedia()) {
       sendMediaPlayState(isPlaying ? "Playing" : "Paused");
+    }
+
+    // 更新 Web MediaSession 播放状态
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
     }
   }
 

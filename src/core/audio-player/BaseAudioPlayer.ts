@@ -4,6 +4,7 @@ import type { IExtendedAudioContext } from "@/types/audio/context";
 import { AudioEffectManager } from "./AudioEffectManager";
 import type { EngineCapabilities, IPlaybackEngine, FadeCurve } from "./IPlaybackEngine";
 import { getSharedAudioContext, getSharedMasterInput } from "../automix/SharedAudioContext";
+import { isElectron } from "@/utils/env";
 
 export interface AudioErrorDetail {
   originalEvent: Event;
@@ -235,7 +236,14 @@ export abstract class BaseAudioPlayer
     const performPause = async () => {
       await this.doPause();
 
-      if (this.audioCtx && this.audioCtx.state === "running" && !options.keepContextRunning) {
+      // 仅在 Electron 环境下挂起 AudioContext
+      // 移动端浏览器后台时 suspend 会导致恢复后需要用户交互才能 resume
+      if (
+        isElectron &&
+        this.audioCtx &&
+        this.audioCtx.state === "running" &&
+        !options.keepContextRunning
+      ) {
         try {
           await this.audioCtx.suspend();
         } catch (e) {

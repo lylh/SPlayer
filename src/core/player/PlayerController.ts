@@ -46,6 +46,11 @@ class PlayerController {
   private onTimeUpdate: DebouncedFunc<() => void> | null = null;
   /** 上次错误处理时间 */
   private lastErrorTime = 0;
+  /** 正在加载歌曲标志，加载期间忽略 stop() 产生的错误事件 */
+  private isLoadingSong = false;
+  /** 错误断路器：记录时间窗口内的错误次数 */
+  private errorWindowStart = 0;
+  private errorWindowCount = 0;
   /** 当前歌曲分析结果 */
   public currentAnalysis: AudioAnalysis | null = null;
   public currentAnalysisKey: string | null = null;
@@ -280,6 +285,8 @@ class PlayerController {
       return;
     }
     try {
+      // 标记正在加载，防止 stop() 产生的错误事件干扰重试计数
+      this.isLoadingSong = true;
       // 立即停止当前播放 (除非是 Crossfade)
       statusStore.playLoading = true;
       if (!options.crossfade) {
@@ -318,6 +325,8 @@ class PlayerController {
       console.log(`🎧 [${playSongData.id}] 最终播放信息:`, audioSource);
       statusStore.songQuality = audioSource.quality;
       statusStore.audioSource = audioSource.source;
+      // 加载完成，取消标记
+      this.isLoadingSong = false;
       // 执行底层播放
       await this.loadAndPlay(
         audioSource.url,
@@ -330,10 +339,22 @@ class PlayerController {
       // 后置处理
       await this.afterPlaySetup(playSongData);
       statusStore.playLoading = false;
-    } catch (error) {
+    } catch (error: any) {
+      this.isLoadingSong = false;
       if (requestToken === this.currentRequestToken) {
-        console.error("❌ 播放初始化失败:", error);
-        this.handlePlaybackError(undefined);
+        console.error(`❌ 播放初始化失败 (token=${requestToken}):`, error);
+
+        let errCode: AudioErrorCode | undefined = undefined;
+        // 如果是因为浏览器拦截自动播放抛出的 NotAllowedError
+        if (error && (error.name === "NotAllowedError" || error.name === "AbortError" || error.code === 20)) {
+          errCode = AudioErrorCode.DOM_ABORT;
+          useStatusStore().playStatus = false;
+          if (error.name === "NotAllowedError") {
+            window.$message.warning("浏览器已限制自动播放，请手动点击播放");
+          }
+        }
+
+        this.handlePlaybackError(errCode);
       }
     }
   }
@@ -691,9 +712,8 @@ class PlayerController {
       playerIpc.sendMediaPlayState("Playing");
       mediaSessionManager.updatePlaybackStatus(true);
       window.document.title = `${playTitle} | SPlayer`;
-      // 只有真正播放了才重置重试计数
-      if (this.retryInfo.count > 0) this.retryInfo.count = 0;
-      // 注意：failSkipCount 的重置移至 onTimeUpdate，确保有实际进度
+      // 重试计数的重置移至 onTimeUpdate，确保有实际播放进度后才重置
+      // 避免 play 事件触发后立即 error 导致重试计数被过早归零而无限循环
       // Last.fm Scrobbler
       lastfmScrobbler.resume();
       // IPC 通知
@@ -763,9 +783,10 @@ class PlayerController {
         progress: calculateProgress(currentTime, duration),
         lyricIndex,
       });
-      // 成功播放一段距离后，重置失败跳过计数
-      if (currentTime > 500 && this.failSkipCount > 0) {
-        this.failSkipCount = 0;
+      // 成功播放一段距离后，重置失败跳过计数和重试计数
+      if (currentTime > 500) {
+        if (this.failSkipCount > 0) this.failSkipCount = 0;
+        if (this.retryInfo.count > 0) this.retryInfo.count = 0;
       }
       // 更新系统 MediaSession
       mediaSessionManager.updateState(duration, currentTime);
@@ -801,6 +822,8 @@ class PlayerController {
     audioManager.addEventListener("timeupdate", this.onTimeUpdate);
     // 错误处理
     audioManager.addEventListener("error", (e) => {
+      // 正在加载新歌曲时，忽略 stop() 清理旧音频源产生的错误
+      if (this.isLoadingSong) return;
       const errCode = e.detail.errorCode;
       this.handlePlaybackError(errCode, this.getSeek());
     });
@@ -819,6 +842,21 @@ class PlayerController {
     const musicStore = useMusicStore();
     const statusStore = useStatusStore();
     const songManager = useSongManager();
+    // 全局断路器：30秒内错误超过10次，强制停止播放
+    if (now - this.errorWindowStart > 30_000) {
+      this.errorWindowStart = now;
+      this.errorWindowCount = 0;
+    }
+    this.errorWindowCount++;
+    if (this.errorWindowCount > 10) {
+      console.error("❌ 30秒内错误次数过多，强制停止播放");
+      window.$message.error("播放异常，已停止播放");
+      statusStore.playLoading = false;
+      this.retryInfo.count = 0;
+      this.failSkipCount = 0;
+      this.pause(true);
+      return;
+    }
     // 清除预加载缓存
     songManager.clearPrefetch();
     // 当前歌曲 ID
@@ -838,9 +876,9 @@ class PlayerController {
       await this.skipToNextWithDelay();
       return;
     }
-    // 用户主动中止
+    // 用户主动中止：仅忽略，不重置重试计数
+    // 重试计数的重置由 setupSongUI（换歌时）和 timeupdate（播放成功后）负责
     if (errCode === AudioErrorCode.ABORTED || errCode === AudioErrorCode.DOM_ABORT) {
-      this.retryInfo.count = 0;
       return;
     }
     // 格式不支持
@@ -864,7 +902,7 @@ class PlayerController {
     // 在线/流媒体错误处理
     this.retryInfo.count++;
     console.warn(
-      `⚠️ 播放出错 (Code: ${errCode}), 重试: ${this.retryInfo.count}/${this.MAX_RETRY_COUNT}`,
+      `⚠️ 播放出错 (Code: ${errCode}), 歌曲ID: ${currentSongId}, 重试: ${this.retryInfo.count}/${this.MAX_RETRY_COUNT}, failSkip: ${this.failSkipCount}`,
     );
     // 未超过重试次数 -> 尝试重新获取 URL（可能是过期）
     if (this.retryInfo.count <= this.MAX_RETRY_COUNT) {
