@@ -159,8 +159,16 @@
       >
         <SvgIcon class="icon" :size="18" name="ThumbDown" />
       </div>
+      <!-- 收藏按钮（私人FM模式） -->
+      <div
+        v-if="statusStore.personalFmMode"
+        :class="['play-icon', 'ctrl-btn', { liked: dataStore.isLikeSong(musicStore.personalFMSong?.id) }]"
+        @click.stop="toLikeSong(musicStore.personalFMSong, !dataStore.isLikeSong(musicStore.personalFMSong?.id))"
+      >
+        <SvgIcon :name="dataStore.isLikeSong(musicStore.personalFMSong?.id) ? 'Favorite' : 'FavoriteBorder'" :size="22" />
+      </div>
       <!-- 上一曲 -->
-      <div v-else class="play-icon" v-debounce="() => player.nextOrPrev('prev')">
+      <div v-else class="play-icon ctrl-btn" v-debounce="() => player.nextOrPrev('prev')">
         <SvgIcon :size="26" name="SkipPrev" />
       </div>
       <!-- 播放暂停 -->
@@ -186,7 +194,7 @@
         </template>
       </n-button>
       <!-- 下一曲 -->
-      <div class="play-icon" v-debounce="() => player.nextOrPrev('next')">
+      <div class="play-icon ctrl-btn" v-debounce="() => player.nextOrPrev('next')">
         <SvgIcon :size="26" name="SkipNext" />
       </div>
       <!-- 循环按钮 -->
@@ -196,6 +204,17 @@
             :name="statusStore.repeatIcon"
             :size="20"
             :depth="statusStore.repeatMode === 'off' ? 3 : 1"
+          />
+        </div>
+        <!-- 收藏按钮 -->
+        <div
+          v-if="musicStore.playSong.type !== 'radio'"
+          :class="['play-icon', 'ctrl-btn', { liked: dataStore.isLikeSong(musicStore.playSong.id) }]"
+          @click.stop="toLikeSong(musicStore.playSong, !dataStore.isLikeSong(musicStore.playSong.id))"
+        >
+          <SvgIcon
+            :name="dataStore.isLikeSong(musicStore.playSong.id) ? 'Favorite' : 'FavoriteBorder'"
+            :size="22"
           />
         </div>
       </template>
@@ -650,6 +669,9 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
       &:active {
         transform: scale(1);
       }
+      &.liked .n-icon {
+        fill: var(--primary-hex);
+      }
     }
   }
   .play-menu {
@@ -694,8 +716,12 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
     grid-template-columns: 1fr auto auto;
     .play-control {
       margin: 0 0 0 12px;
-      .play-icon {
+      .play-icon:not(.ctrl-btn) {
         display: none;
+      }
+      .ctrl-btn {
+        width: 34px;
+        height: 34px;
       }
     }
   }
@@ -738,6 +764,10 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
       .play-pause {
         --n-width: 40px;
         --n-height: 40px;
+      }
+      .ctrl-btn {
+        width: 32px;
+        height: 32px;
       }
     }
     .play-menu {
